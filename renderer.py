@@ -11,10 +11,14 @@ from kivy.uix.widget import Widget
 
 
 class Renderer(Widget):
+    
+    SCALE_FACTOR = 0.01
+    
     def __init__(self, **kw):
         self.canvas = RenderContext(compute_normal_mat=True)
         shader_file = kw.pop('shader_file')
         self.canvas.shader.source = resource_find(shader_file)
+        self.touches = []
         super(Renderer, self).__init__(**kw)
         with self.canvas:
             self.cb = Callback(self.setup_gl_context)
@@ -39,6 +43,9 @@ class Renderer(Widget):
         
         PushMatrix()
         Translate(0, 0, 0)
+        self.rotx = Rotate(0, 1, 0, 0)
+        self.roty = Rotate(0, 0, 1, 0)
+        self.scale = Scale(1)
         UpdateNormalMatrix()
         self.draw()
         PopMatrix()
@@ -49,6 +56,64 @@ class Renderer(Widget):
     def draw(self):
         raise NotImplemented
     
+    def define_rotate_angle(self, touch):
+        x_angle = (touch.dx/self.width)*360
+        y_angle = -1*(touch.dy/self.height)*360
+        
+        return x_angle, y_angle
+    
+    def do_scale(self):
+        touch1, touch2 = self._touches 
+        old_pos1 = (touch1.x - touch1.dx, touch1.y - touch1.dy)
+        old_pos2 = (touch2.x - touch2.dx, touch2.y - touch2.dy)              
+        old_dx = old_pos1[0] - old_pos2[0]
+        old_dy = old_pos1[1] - old_pos2[1]
+        old_distance = (old_dx*old_dx + old_dy*old_dy)
+
+        
+        new_dx = touch1.x - touch2.x
+        new_dy = touch1.y - touch2.y
+        
+        new_distance = (new_dx*new_dx + new_dy*new_dy)
+        
+        if new_distance > old_distance: 
+            scale = self.SCALE_FACTOR
+
+        elif new_distance == old_distance:
+            scale = 0
+        else:
+            scale = -1*self.SCALE_FACTOR
+            
+        xyz = self.scale.xyz
+        
+        if scale:
+            self.scale.xyz = tuple(p + scale for p in xyz)
+    
+    def on_touch_down(self, touch):
+        touch.grab(self)
+        self._touches.append(touch)
+        
+    def on_touch_up(self, touch): 
+        touch.ungrab(self)
+        self._touches.remove(touch)
+        
+    def on_touch_move(self, touch): 
+        #Logger.debug("dx: %s, dy: %s. Widget: (%s, %s)" % (touch.dx, touch.dy, self.width, self.height))
+
+        if touch in self._touches and touch.grab_current == self:
+            if len(self._touches) == 1:
+                # here do just rotation        
+                ax, ay = self.define_rotate_angle(touch)
+                
+                self.roty.angle += ax
+                self.rotx.angle += ay
+
+            elif len(self._touches) == 2: # scaling here
+                #use two touches to determine do we need scal
+                self.do_scale()
+        
+        self.update_scene()    
+
 
 class RendererApp(App):
     def build(self):

@@ -1,6 +1,7 @@
 
 from kivy.graphics import *
 from renderer import Renderer
+from trackball import TrackBallMixin
 
 
 class CubeSurface(object):
@@ -47,7 +48,7 @@ class CubeSurface(object):
         return vertices
 
 
-class GraphicalCube(Renderer):
+class GraphicalCube(Renderer, TrackBallMixin):
     """ Graphical representation of the cube """
     
     
