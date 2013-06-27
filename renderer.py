@@ -18,7 +18,7 @@ class Renderer(Widget):
         self.canvas = RenderContext(compute_normal_mat=True)
         shader_file = kw.pop('shader_file')
         self.canvas.shader.source = resource_find(shader_file)
-        self.touches = []
+        self._touches = []
         super(Renderer, self).__init__(**kw)
         with self.canvas:
             self.cb = Callback(self.setup_gl_context)
@@ -26,7 +26,6 @@ class Renderer(Widget):
             self.setup_scene()
             PopMatrix()
             self.cb = Callback(self.reset_gl_context)
-        
 
     def setup_gl_context(self, *args):
         glEnable(GL_DEPTH_TEST)
@@ -35,14 +34,14 @@ class Renderer(Widget):
         glDisable(GL_DEPTH_TEST)
 
     def update_glsl(self, *largs):
-        asp = float(Window.width) / Window.height
-        proj = Matrix().view_clip(-asp, asp, -1, 1, 1, 100, 1)
+        asp = float(Window.width) / Window.height / 2.
+        proj = Matrix().view_clip(-asp, asp, -0.5, 0.5, 1, 100, 1)
         self.canvas['projection_mat'] = proj
 
     def setup_scene(self):
         
         PushMatrix()
-        Translate(0, 0, 0)
+        Translate(0, 0, -5)
         self.rotx = Rotate(0, 1, 0, 0)
         self.roty = Rotate(0, 0, 1, 0)
         self.scale = Scale(1)
