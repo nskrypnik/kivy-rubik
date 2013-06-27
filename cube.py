@@ -1,4 +1,5 @@
 
+import math
 from kivy.graphics import *
 from renderer import Renderer
 from copy import copy
@@ -59,8 +60,32 @@ class GraphicalCube(Renderer):
         self.cell_in_row = kw.pop('cell_in_row', 3)
         self.cell_spacing = kw.pop('cell_spacing', 0.01)
         self.cell_in_surface = self.cell_in_row^2
-        
+        self.color_to_cell = {}
+        self.create_cubelets()
         super(GraphicalCube, self).__init__(*largs, **kw)
+        
+    def create_cubelets(self):
+        self.cubelets = {}
+        self.center_to_cubelets = {} 
+        # define here position of center of top cubelet
+        cubelet_size = float(self.cube_size) / self.cell_in_row  
+        if self.cell_in_row % 2:
+            cubelets_to_corner = (self.cell_in_row - 1) / 2
+            zero_cubelet_center = [cubelets_to_corner*cubelet_size for i in xrange(3)]
+        else:
+            cubelets_to_corner = self.cell_in_row  / 2
+            zero_cubelet_center = [cubelets_to_corner*cubelet_size - cubelet_size / 2. for i in xrange(3)]
+        for x in xrange(self.cell_in_row):
+            for y in xrange(self.cell_in_row):
+                for z in xrange(self.cell_in_row):
+                    cubelet_center = (
+                                      zero_cubelet_center[0] - x*cubelet_size,
+                                      zero_cubelet_center[1] - y*cubelet_size,
+                                      zero_cubelet_center[2] - z*cubelet_size
+                                      )
+                    cubelet = Cubelet((x, y, z), cubelet_center)
+                    self.cubelets[x, y, z] = cubelet
+                    self.center_to_cubelets[cubelet_center] = cubelet
         
     def draw_surface(self, surface):
         vertices = self.get_surface_vertices(surface)
@@ -156,25 +181,63 @@ class GraphicalCube(Renderer):
             cell_vertices, cell_centers = self.get_cell_vertices(surface)
             back_cell_vertices = self.get_back_cell_vertices(cell_centers, surface)
             inner_color = map(lambda x: x+self.cell_in_row if x < self.cell_in_row else x, surface.inner_color)
+            # draw color cell section
             for cell_pos, vertices in cell_vertices.iteritems():
                 color = inner_color[0] - cell_pos[0], inner_color[1] - cell_pos[1], inner_color[2]
+                cell = surface.cells[cell_pos]
+                r, g, b = color
+                self.color_to_cell[r, g, b] = cell
+                cell.color = color # set color for surface
                 color = map(lambda x: x / 255., color)
-                CubeCell(vertices, color)
+                cell.g_cells.append(CubeCell(vertices, color))
+            # draw background black section
             for cell_pos, vertices in back_cell_vertices.iteritems():
-                CubeCell(vertices, (0., 0., 0.))
+                surface.cells[cell_pos].g_cells.append(CubeCell(vertices, (0., 0., 0.)))
+            # bind cells to cubelets
+            for cell_pos, cell_center in cell_centers.iteritems():
+                res = self.bind_to_cubelet(cell_pos, cell_center, surface)
+                if not res:
+                    raise Exception('Can\'t bind cell')
+    
+    _cube_centers = []
+    def bind_to_cubelet(self, cell_pos, cell_center, surface):
+        cell_diameter = self.cube_size / float(self.cell_in_row) / 2.
+        center_shift = map(lambda x: x*cell_diameter, surface.pos)
+        cell_cube_center = list(imap(lambda x, y: x-y, cell_center, center_shift))
+        #if cell_cube_center in self._cube_centers:
+        #    import ipdb; ipdb.set_trace()
+        #else:
+        #    self._cube_centers.append(cell_cube_center)
+
+        for k in self.center_to_cubelets:
+            cell_belongs_to = True
+            for u, v in zip(k, cell_cube_center):
+                if not math.fabs(u-v) < 0.000000001:
+                    cell_belongs_to = False
+            if cell_belongs_to:
+                # do some stuff to bind cells
+                cell = surface.cells[cell_pos]
+                cubelet = self.center_to_cubelets[k]
+                cubelet.bind(cell)
+                return True
+        # no appropriate cubelet found
+        return False
                 
     def on_touch_down(self, touch):
         pypixels = glReadPixels(touch.x, touch.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE)
-        sel_color = [ord(i) for i in pypixels]
-        print sel_color
+        r, g, b, a = [ord(i) for i in pypixels]
+        cell = self.color_to_cell.get((r, g, b))
+        print cell.cubelet.pos
         super(GraphicalCube, self).on_touch_down(touch)
 
 
 class LogicalCell(object):
     """ Logical representation of the cube cell """
-    def __init__(self, _id, color):
-        self.id = _id
-        self.color = color # color identifier
+    def __init__(self, pos):
+        self.id = pos
+        self.color = () # color identifier
+        self.cubelet = None
+        self.g_cells = []
 
 
 class LogicalSurface(object):
@@ -184,6 +247,18 @@ class LogicalSurface(object):
         self.pos = pos
         self.id = _id
         self.inner_color = inner_color
+
+
+class Cubelet(object):
+    
+    def __init__(self, pos, center):
+        self.pos = pos
+        self.center = center
+        self.cells = [] # bound cells
+    
+    def bind(self, cell):
+        self.cells.append(cell)
+        cell.cubelet = self
 
 
 class LogicalCube(object):
@@ -212,12 +287,16 @@ class LogicalCube(object):
             color = self.SURFACE_COLOR_MAP[surface_id]
             pos =  self.SURFACE_MAP[surface_id]
             surface = LogicalSurface(surface_id, pos, color)
-            self.surfaces[surface_id] = surface 
+            self.surfaces[pos] = surface
     
     def create_cells(self):
-        pass
-    
+        for surface in self.surfaces.values():
+            for x in xrange(self.cell_in_row):
+                for y in xrange(self.cell_in_row):
+                    surface.cells[x, y] = LogicalCell((x, y))
+        
     def __init__(self, cell_in_row=3):
+        self.cell_in_row = cell_in_row
         self.create_surfaces()
         self.create_cells()
         self.widget = GraphicalCube(cell_in_row=cell_in_row, surfaces=self.surfaces)
