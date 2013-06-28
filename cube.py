@@ -5,6 +5,7 @@ from renderer import Renderer
 from copy import copy
 from itertools import imap
 from kivy.graphics.opengl import *
+from time import time
 
 class CubeCell(object):
     """ This is the cube cell class which is graphical
@@ -52,6 +53,8 @@ class CubeCell(object):
 
 class GraphicalCube(Renderer):
     """ Graphical representation of the cube """
+    
+    TOUCH_DELAY = 0.25
      
     def __init__(self, *largs, **kw):
         kw['shader_file'] = 'shaders.glsl'
@@ -148,7 +151,7 @@ class GraphicalCube(Renderer):
         surface_center = [i*cube_diameter for i in surface.pos]
         
         cell_vertices = {}
-        normal_surface_vertices = self.get_normal_vertices(surface_center, cell_diameter, z_shift=-0.0001)
+        normal_surface_vertices = self.get_normal_vertices(surface_center, cell_diameter, z_shift=-0.001)
         for pos, cell in cell_centers.iteritems():
             vertices = []
             for v in normal_surface_vertices:
@@ -199,15 +202,10 @@ class GraphicalCube(Renderer):
                 if not res:
                     raise Exception('Can\'t bind cell')
     
-    _cube_centers = []
     def bind_to_cubelet(self, cell_pos, cell_center, surface):
         cell_diameter = self.cube_size / float(self.cell_in_row) / 2.
         center_shift = map(lambda x: x*cell_diameter, surface.pos)
         cell_cube_center = list(imap(lambda x, y: x-y, cell_center, center_shift))
-        #if cell_cube_center in self._cube_centers:
-        #    import ipdb; ipdb.set_trace()
-        #else:
-        #    self._cube_centers.append(cell_cube_center)
 
         for k in self.center_to_cubelets:
             cell_belongs_to = True
@@ -224,17 +222,26 @@ class GraphicalCube(Renderer):
         return False
                 
     def on_touch_down(self, touch):
+        self.touch_time = time()
         pypixels = glReadPixels(touch.x, touch.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE)
         r, g, b, a = [ord(i) for i in pypixels]
         cell = self.color_to_cell.get((r, g, b))
-        print cell.cubelet.pos
+        if cell:
+            print cell.cubelet.pos, cell.orient
         super(GraphicalCube, self).on_touch_down(touch)
+    
+    def on_touch_move(self, touch):
+        super(GraphicalCube, self).on_touch_move(touch)
+    
+    def on_touch_up(self, touch):
+        super(GraphicalCube, self).on_touch_up(touch)
 
 
 class LogicalCell(object):
     """ Logical representation of the cube cell """
-    def __init__(self, pos):
+    def __init__(self, pos, orient):
         self.id = pos
+        self.orient = orient
         self.color = () # color identifier
         self.cubelet = None
         self.g_cells = []
@@ -293,7 +300,7 @@ class LogicalCube(object):
         for surface in self.surfaces.values():
             for x in xrange(self.cell_in_row):
                 for y in xrange(self.cell_in_row):
-                    surface.cells[x, y] = LogicalCell((x, y))
+                    surface.cells[x, y] = LogicalCell((x, y), surface.pos)
         
     def __init__(self, cell_in_row=3):
         self.cell_in_row = cell_in_row
