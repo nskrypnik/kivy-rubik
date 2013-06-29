@@ -13,6 +13,9 @@ from kivy.uix.widget import Widget
 class Renderer(Widget):
     
     SCALE_FACTOR = 0.01
+    MAX_SCALE = 3.0
+    MIN_SCALE = 0.3
+    ROTATE_SPEED = 1.
     
     def __init__(self, **kw):
         self.canvas = RenderContext(compute_normal_mat=True)
@@ -56,8 +59,8 @@ class Renderer(Widget):
         raise NotImplemented
     
     def define_rotate_angle(self, touch):
-        x_angle = (touch.dx/self.width)*360
-        y_angle = -1*(touch.dy/self.height)*360
+        x_angle = (touch.dx/self.width)*360.*self.ROTATE_SPEED
+        y_angle = -1*(touch.dy/self.height)*360.*self.ROTATE_SPEED
         
         return x_angle, y_angle
     
@@ -82,12 +85,13 @@ class Renderer(Widget):
             scale = 0
         else:
             scale = -1*self.SCALE_FACTOR
-            
-        xyz = self.scale.xyz
         
+        xyz = self.scale.xyz
         if scale:
-            self.scale.xyz = tuple(p + scale for p in xyz)
-    
+            scale = xyz[0] + scale
+            if scale < self.MAX_SCALE and scale > self.MIN_SCALE:
+                self.scale.xyz = (scale, scale, scale)
+        
     def on_touch_down(self, touch):
         touch.grab(self)
         self._touches.append(touch)

@@ -1,10 +1,12 @@
 
 import math
+import utils
 from kivy.graphics import *
 from renderer import Renderer
 from copy import copy
 from itertools import imap
 from kivy.graphics.opengl import *
+from kivy.clock import Clock
 from time import time
 
 class CubeCell(object):
@@ -19,6 +21,10 @@ class CubeCell(object):
     
     def __init__(self, vertices, color):
         
+        _rotors = {'x': (1, 0, 0),
+                   'y': (0, 1, 0),
+                   'z': (0, 0, 1),
+                   }
         
         self.vertices = vertices
         self.color = color
@@ -26,6 +32,10 @@ class CubeCell(object):
         indices = [0, 1, 2, 3, 0, 2] # allways the same
         _vertices = self._calculate_vertices()
         PushMatrix()
+        self.rotors = {}
+        for k, axis in _rotors.items():
+            self.rotors[k] = Rotate(0, *axis)
+        
         ChangeState(
                     Kd=self.color,
                     Ka=self.color,
@@ -54,17 +64,22 @@ class CubeCell(object):
 class GraphicalCube(Renderer):
     """ Graphical representation of the cube """
     
-    TOUCH_DELAY = 0.25
+    TOUCH_DELAY = 0.15
+    ROTATE_SPEED = 0.125
+    MAX_SCALE = 1.3
+    MIN_SCALE = 0.3
      
     def __init__(self, *largs, **kw):
         kw['shader_file'] = 'shaders.glsl'
         self.cube_size = kw.pop('size', 3)
         self.surfaces = kw.pop('surfaces', [])
         self.cell_in_row = kw.pop('cell_in_row', 3)
-        self.cell_spacing = kw.pop('cell_spacing', 0.01)
+        self.cell_spacing = kw.pop('cell_spacing', 0.025)
         self.cell_in_surface = self.cell_in_row^2
         self.color_to_cell = {}
         self.create_cubelets()
+        self.is_animated = False # whetger the cube is in animation state
+        self.in_turn_process = False
         super(GraphicalCube, self).__init__(*largs, **kw)
         
     def create_cubelets(self):
@@ -220,28 +235,148 @@ class GraphicalCube(Renderer):
                 return True
         # no appropriate cubelet found
         return False
-                
-    def on_touch_down(self, touch):
-        self.touch_time = time()
+    
+    def get_touched_cell(self, touch):
         pypixels = glReadPixels(touch.x, touch.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE)
         r, g, b, a = [ord(i) for i in pypixels]
         cell = self.color_to_cell.get((r, g, b))
         if cell:
-            print cell.cubelet.pos, cell.orient
+            print cell.orient, cell.cubelet.pos
+            return cell
+        else:
+            return None
+    
+    def make_cube_turn(self, touch):
+        if self.in_turn_process:
+            return
+        cell = self.get_touched_cell(touch)
+        if not cell:
+            return
+        cubelet = cell.cubelet
+        if len(self._slided_cubelets) == 0:
+            self._slided_cubelets.append(cubelet)
+        else:
+            cubelet0 = self._slided_cubelets[0]
+            if cubelet0 == cubelet:
+                # do nothing here
+                pass
+            else:
+                # do here turn logic
+                # define surface of turn first (as two coordinates)
+                self.in_turn_process = True
+                for i in xrange(3): # for 3 dimension :-)
+                    turn_direct = cubelet0.pos[i] - cubelet.pos[i]
+                    if turn_direct:
+                        x_index = i
+                        break
+                        
+                for i in xrange(3):
+                    if cell.orient[i]:
+                        y_index = i
+                        break
+                z_index = 3 - y_index - x_index
+                z_value = cubelet.pos[z_index]
+                self.rotate_cubelets_surface((x_index, y_index, z_index), z_value, turn_direct)
+                self.start_animation()
+    
+    def rotate_cubelets_surface(self, coord_indices, z_value, turn_direct):
+        # first get matrix of 
+        x_index, y_index, z_index = coord_indices
+        
+        cubelets_matrix = []
+        for x in xrange(self.cell_in_row):
+            cubelets_matrix.append([])
+            for y in xrange(self.cell_in_row):
+                coord = [0, 0, 0]
+                coord[x_index] = x
+                coord[y_index] = y
+                coord[z_index] = z_value
+                cubelet = self.cubelets[tuple(coord)]
+                cubelets_matrix[x].append(cubelet)
+        
+        self.rotate_cells(cubelets_matrix, x_index, y_index, turn_direct)
+        cubelets_matrix = utils.turn_matrix(cubelets_matrix, self.cell_in_row, turn_direct)
+        
+        for x in xrange(self.cell_in_row):
+            for y in xrange(self.cell_in_row):
+                coord = [0, 0, 0]
+                coord[x_index] = x
+                coord[y_index] = y
+                coord[z_index] = z_value
+                cubelet = cubelets_matrix[x][y]
+                cubelet.pos = coord 
+                self.cubelets[tuple(coord)] = cubelet
+                
+    def rotate_cells(self, cubelets_matrix, x_index, y_index, turn_direct):
+        _axis = {'x': 1, 'y':-1, 'z': -1}
+        self._cells_to_rotate = []
+        z_index = 3 - x_index - y_index
+        rot_axis = {0:'x', 1:'y', 2:'z'}[z_index]
+        if rot_axis in ('x', 'z'):
+            turn_direct *= -1
+        self._rotate_direction = rot_axis, turn_direct
+        print self._rotate_direction 
+        for row in cubelets_matrix:
+            for cubelet in row:
+                for cell in cubelet.cells:
+                    self._cells_to_rotate.append(cell)
+        # change orientation of the cell
+        for cell in self._cells_to_rotate:
+            if cell.orient[x_index] and not cell.orient[y_index]:
+                tmp = cell.orient[x_index]
+                cell.orient[x_index] = 0
+                cell.orient[y_index] = tmp*turn_direct*_axis[rot_axis]
+            elif not cell.orient[x_index] and cell.orient[y_index]:
+                tmp = cell.orient[y_index]
+                cell.orient[y_index] = 0
+                cell.orient[x_index] = -1*tmp*turn_direct*_axis[rot_axis]
+
+    def on_touch_down(self, touch):
+        self.touch_time = time()
+        self.move_delta = 0
+        self._slided_cubelets = []
         super(GraphicalCube, self).on_touch_down(touch)
+        self.get_touched_cell(touch)
     
     def on_touch_move(self, touch):
-        super(GraphicalCube, self).on_touch_move(touch)
+        if time() - self.touch_time < self.TOUCH_DELAY or \
+                len(self._touches) > 1 or self.move_delta>50 or self.is_animated:
+            # here is the rotate mode of the rubik's cube
+            super(GraphicalCube, self).on_touch_move(touch)
+            self.move_delta += math.fabs(touch.dx) + math.fabs(touch.dy)
+            self.touch_time = time()
+        else:
+            # this is the mode of side rotation
+            self.make_cube_turn(touch)
     
     def on_touch_up(self, touch):
+        if self.in_turn_process:
+            self.is_animated = True
+            self.in_turn_process = False
+        self.move_delta = 0
         super(GraphicalCube, self).on_touch_up(touch)
-
+    
+    # Animation functions here
+    def start_animation(self):
+        self._ticks = 0
+        Clock.schedule_interval(self._do_animation, 1 / 20.)
+    
+    def _do_animation(self, dt):
+        axis, direct = self._rotate_direction
+        for cell in self._cells_to_rotate:
+            for g_cell in cell.g_cells:
+                rot = g_cell.rotors[axis]
+                rot.angle += direct*9
+        self._ticks += 1
+        if self._ticks == 10:
+            Clock.unschedule(self._do_animation)
+            self.is_animated = False
 
 class LogicalCell(object):
     """ Logical representation of the cube cell """
     def __init__(self, pos, orient):
         self.id = pos
-        self.orient = orient
+        self.orient = list(orient)
         self.color = () # color identifier
         self.cubelet = None
         self.g_cells = []
@@ -266,6 +401,9 @@ class Cubelet(object):
     def bind(self, cell):
         self.cells.append(cell)
         cell.cubelet = self
+        
+    def __repr__(self):
+        return "<Cubelet (%s, %s, %s)>" % self.pos
 
 
 class LogicalCube(object):
@@ -303,6 +441,8 @@ class LogicalCube(object):
                     surface.cells[x, y] = LogicalCell((x, y), surface.pos)
         
     def __init__(self, cell_in_row=3):
+        if cell_in_row > 8:
+            raise Exception('It doesn\'t support more than 8 cells in row')
         self.cell_in_row = cell_in_row
         self.create_surfaces()
         self.create_cells()
