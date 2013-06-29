@@ -242,9 +242,28 @@ class GraphicalCube(Renderer):
         cell = self.color_to_cell.get((r, g, b))
         if cell:
             print cell.orient, cell.cubelet.pos
+            print cell.g_cells[0].rotors['x'].angle, cell.g_cells[0].rotors['y'].angle, cell.g_cells[0].rotors['z'].angle 
             return cell
         else:
             return None
+        
+    def get_rotate_direction(self, orient, z_index, turn_direct):
+        
+        axis_rotate_indices = {(0, 0, 1): {'x': (-1, -1), 'y': (1, 1)},
+                               (0, 1, 0): {'x': (1, -1), 'z': (-1, 1)},
+                               (1, 0, 0): {'y': (-1, 1), 'z': (1, 1)},
+                               (0, 0, -1): {'x': (-1, -1), 'y': (1, 1)},
+                               (0, -1, 0): {'x': (1, -1), 'z': (-1, 1)},
+                               (-1, 0, 0): {'y': (-1, 1), 'z': (1, 1)},
+                               }
+        
+        rot_axis = {0:'x', 1:'y', 2:'z'}[z_index]
+        self._graphical_rotate = axis_rotate_indices[tuple(orient)][rot_axis][0]
+        self._cell_surface_rotate = axis_rotate_indices[tuple(orient)][rot_axis][1]
+        for x in orient:
+            if x:
+                turn_direct *= x
+        return rot_axis, turn_direct
     
     def make_cube_turn(self, touch):
         if self.in_turn_process:
@@ -275,14 +294,19 @@ class GraphicalCube(Renderer):
                         y_index = i
                         break
                 z_index = 3 - y_index - x_index
-                z_value = cubelet.pos[z_index]
-                self.rotate_cubelets_surface((x_index, y_index, z_index), z_value, turn_direct)
+                try:
+                    z_value = cubelet.pos[z_index]
+                except IndexError:
+                    import ipdb; ipdb.set_trace()
+                print "turn_direct original", turn_direct
+                self._rotate_direction = self.get_rotate_direction(cell.orient, z_index, turn_direct)
+                self.rotate_cubelets_surface((x_index, y_index, z_index), z_value)
                 self.start_animation()
     
-    def rotate_cubelets_surface(self, coord_indices, z_value, turn_direct):
+    def rotate_cubelets_surface(self, coord_indices, z_value):
         # first get matrix of 
         x_index, y_index, z_index = coord_indices
-        
+        rot_axis, turn_direct = self._rotate_direction
         cubelets_matrix = []
         for x in xrange(self.cell_in_row):
             cubelets_matrix.append([])
@@ -293,9 +317,16 @@ class GraphicalCube(Renderer):
                 coord[z_index] = z_value
                 cubelet = self.cubelets[tuple(coord)]
                 cubelets_matrix[x].append(cubelet)
+        print "Turn matrix to %s" % turn_direct    
+        for i in cubelets_matrix:
+            print i
         
-        self.rotate_cells(cubelets_matrix, x_index, y_index, turn_direct)
+        self.rotate_cells(cubelets_matrix, x_index, y_index)
         cubelets_matrix = utils.turn_matrix(cubelets_matrix, self.cell_in_row, turn_direct)
+        
+        print
+        for i in cubelets_matrix:
+            print i
         
         for x in xrange(self.cell_in_row):
             for y in xrange(self.cell_in_row):
@@ -307,14 +338,14 @@ class GraphicalCube(Renderer):
                 cubelet.pos = coord 
                 self.cubelets[tuple(coord)] = cubelet
                 
-    def rotate_cells(self, cubelets_matrix, x_index, y_index, turn_direct):
+    def rotate_cells(self, cubelets_matrix, x_index, y_index):
         _axis = {'x': 1, 'y':-1, 'z': -1}
         self._cells_to_rotate = []
-        z_index = 3 - x_index - y_index
-        rot_axis = {0:'x', 1:'y', 2:'z'}[z_index]
-        if rot_axis in ('x', 'z'):
-            turn_direct *= -1
-        self._rotate_direction = rot_axis, turn_direct
+        #z_index = 3 - x_index - y_index
+        #rot_axis = {0:'x', 1:'y', 2:'z'}[z_index]
+        #if rot_axis in ('x', 'z'):
+        #    turn_direct *= -1
+        rot_axis, turn_direct = self._rotate_direction
         print self._rotate_direction 
         for row in cubelets_matrix:
             for cubelet in row:
@@ -325,11 +356,11 @@ class GraphicalCube(Renderer):
             if cell.orient[x_index] and not cell.orient[y_index]:
                 tmp = cell.orient[x_index]
                 cell.orient[x_index] = 0
-                cell.orient[y_index] = tmp*turn_direct*_axis[rot_axis]
+                cell.orient[y_index] = tmp*turn_direct*_axis[rot_axis]*self._cell_surface_rotate
             elif not cell.orient[x_index] and cell.orient[y_index]:
                 tmp = cell.orient[y_index]
                 cell.orient[y_index] = 0
-                cell.orient[x_index] = -1*tmp*turn_direct*_axis[rot_axis]
+                cell.orient[x_index] = -1*tmp*turn_direct*_axis[rot_axis]*self._cell_surface_rotate
 
     def on_touch_down(self, touch):
         self.touch_time = time()
@@ -362,15 +393,30 @@ class GraphicalCube(Renderer):
         Clock.schedule_interval(self._do_animation, 1 / 20.)
     
     def _do_animation(self, dt):
+        
+        def _change_axis():
+            # Change here rotation axis of the cell, e.g.
+            # if we rotate cell around y we should change
+            # axis z an x
+            axis, direct = self._rotate_direction
+            _axis = ['x', 'y', 'z']
+            _axis.remove(axis)
+            for cell in self._cells_to_rotate:
+                for g_cell in cell.g_cells:
+                    tmp = g_cell.rotors[_axis[0]]
+                    g_cell.rotors[_axis[0]] = g_cell.rotors[_axis[1]]
+                    g_cell.rotors[_axis[1]] = tmp
+        
         axis, direct = self._rotate_direction
         for cell in self._cells_to_rotate:
             for g_cell in cell.g_cells:
                 rot = g_cell.rotors[axis]
-                rot.angle += direct*9
+                rot.angle += self._graphical_rotate*direct*9
         self._ticks += 1
         if self._ticks == 10:
             Clock.unschedule(self._do_animation)
             self.is_animated = False
+            #_change_axis()
 
 class LogicalCell(object):
     """ Logical representation of the cube cell """
@@ -403,7 +449,7 @@ class Cubelet(object):
         cell.cubelet = self
         
     def __repr__(self):
-        return "<Cubelet (%s, %s, %s)>" % self.pos
+        return "<Cubelet %s>" % (self.pos, )
 
 
 class LogicalCube(object):
