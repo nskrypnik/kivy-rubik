@@ -91,15 +91,25 @@ class Renderer(Widget):
             scale = xyz[0] + scale
             if scale < self.MAX_SCALE and scale > self.MIN_SCALE:
                 self.scale.xyz = (scale, scale, scale)
-        
+    
+    def ignore_undertouch(func):
+        def wrap(self, touch):
+            gl = touch.grab_list
+            if len(gl) == 0 or (self is gl[0]()):
+                return func(self, touch)
+        return wrap
+
+    @ignore_undertouch
     def on_touch_down(self, touch):
         touch.grab(self)
         self._touches.append(touch)
-        
-    def on_touch_up(self, touch): 
+    
+    @ignore_undertouch
+    def on_touch_up(self, touch):
         touch.ungrab(self)
         self._touches.remove(touch)
-        
+    
+    @ignore_undertouch
     def on_touch_move(self, touch): 
         #Logger.debug("dx: %s, dy: %s. Widget: (%s, %s)" % (touch.dx, touch.dy, self.width, self.height))
 

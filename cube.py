@@ -8,6 +8,63 @@ from itertools import imap
 from kivy.graphics.opengl import *
 from kivy.clock import Clock
 from time import time
+'''
+            x
+            1 0  0   1  0 0
+            0 0 -1   0  0 1
+            0 1  0   0 -1 0
+            y
+             0 0 1   0 0 -1
+             0 1 0   0 1  0
+            -1 0 0   1 0  0
+            z
+            0 -1 0    0 1 0
+            1  0 0   -1 0 0
+            0  0 1    0 0 1
+'''
+
+ROTATE_MATRICES = {
+    'x':
+        {
+         1: (
+            (1, 0,  0),
+            (0, 0, -1),
+            (0, 1,  0),
+            ),
+        -1:
+            (
+             (1, 0, 0),
+             (0, 0, 1),
+             (0, -1, 0),
+            ) },
+    'y':
+        {
+         1: (
+            (0, 0,  1),
+            (0, 1, 0),
+            (-1, 0,  0),
+            ),
+        -1:
+            (
+             (0, 0, -1),
+             (0, 1, 0),
+             (1, 0, 0),
+            ) },
+    'z':
+        {
+         1: (
+            (0, -1,  0),
+            (1, 0, 0),
+            (0, 0,  1,),
+            ),
+        -1:
+            (
+             (0, 1, 0),
+             (-1, 0, 0),
+             (0, 0, 1),
+            ) }
+
+}
 
 class CubeCell(object):
     """ This is the cube cell class which is graphical
@@ -19,22 +76,26 @@ class CubeCell(object):
             ('v_normal', 3, 'float'),
             ('v_tc0', 2, 'float')]
     
-    def __init__(self, vertices, color):
+    def __init__(self, vertices, color, center):
         
-        _rotors = {'x': (1, 0, 0),
+        self.rotor_vectors = {'x': (1, 0, 0),
                    'y': (0, 1, 0),
                    'z': (0, 0, 1),
                    }
         
         self.vertices = vertices
         self.color = color
+        self.center = center
         
         indices = [0, 1, 2, 3, 0, 2] # allways the same
         _vertices = self._calculate_vertices()
         PushMatrix()
         self.rotors = {}
-        for k, axis in _rotors.items():
+        self.direct = {}
+        
+        for k, axis in self.rotor_vectors.items():
             self.rotors[k] = Rotate(0, *axis)
+            self.direct[k] = 1
         
         ChangeState(
                     Kd=self.color,
@@ -43,13 +104,30 @@ class CubeCell(object):
                     Tr=1., Ns=1.,
                     intensity=1.,
                 )
-        Mesh(
+        self.mesh = Mesh(
              vertices=_vertices,
              indices=indices,
              fmt=self.vertex_format,
              mode='triangles',
             )
         PopMatrix()
+        
+    def rotate_vertices(self, rotate_matrix):
+        new_vertices = []
+        for vertex in self.vertices:
+            # normalize vertices
+            new_vertex = []
+            #normal_vertex = list(imap(lambda x, y: x - y, vertex, self.center))
+            normal_vertex = vertex
+            for row in rotate_matrix:
+                res = 0
+                for i in xrange(3):
+                    res += row[i] * normal_vertex[i]
+                new_vertex.append(res)
+            #new_vertex= list(imap(lambda x, y: x + y, new_vertex, self.center))
+            new_vertices.append(new_vertex)
+        self.vertices = new_vertices 
+        self.mesh.vertices = self._calculate_vertices()
         
     def _calculate_vertices(self):
         vertices = []
@@ -206,11 +284,13 @@ class GraphicalCube(Renderer):
                 r, g, b = color
                 self.color_to_cell[r, g, b] = cell
                 cell.color = color # set color for surface
+                #if color != (254, 254, 254):
+                #    color = (0, 0, 0)
                 color = map(lambda x: x / 255., color)
-                cell.g_cells.append(CubeCell(vertices, color))
+                cell.g_cells.append(CubeCell(vertices, color, cell_centers[cell_pos]))
             # draw background black section
             for cell_pos, vertices in back_cell_vertices.iteritems():
-                surface.cells[cell_pos].g_cells.append(CubeCell(vertices, (0., 0., 0.)))
+                surface.cells[cell_pos].g_cells.append(CubeCell(vertices, (0., 0., 0.), cell_centers[cell_pos]))
             # bind cells to cubelets
             for cell_pos, cell_center in cell_centers.iteritems():
                 res = self.bind_to_cubelet(cell_pos, cell_center, surface)
@@ -242,7 +322,8 @@ class GraphicalCube(Renderer):
         cell = self.color_to_cell.get((r, g, b))
         if cell:
             print cell.orient, cell.cubelet.pos
-            print cell.g_cells[0].rotors['x'].angle, cell.g_cells[0].rotors['y'].angle, cell.g_cells[0].rotors['z'].angle 
+            print cell.g_cells[0].rotors['x'].angle, cell.g_cells[0].rotors['y'].angle, cell.g_cells[0].rotors['z'].angle
+            print cell.g_cells[0].rotor_vectors, cell.color
             return cell
         else:
             return None
@@ -394,29 +475,25 @@ class GraphicalCube(Renderer):
     
     def _do_animation(self, dt):
         
-        def _change_axis():
-            # Change here rotation axis of the cell, e.g.
-            # if we rotate cell around y we should change
-            # axis z an x
+        def _update_cells():
+            
             axis, direct = self._rotate_direction
-            _axis = ['x', 'y', 'z']
-            _axis.remove(axis)
+            rotate_matrix = ROTATE_MATRICES[axis][self._graphical_rotate*direct]
             for cell in self._cells_to_rotate:
                 for g_cell in cell.g_cells:
-                    tmp = g_cell.rotors[_axis[0]]
-                    g_cell.rotors[_axis[0]] = g_cell.rotors[_axis[1]]
-                    g_cell.rotors[_axis[1]] = tmp
+                    g_cell.rotate_vertices(rotate_matrix)
+                    g_cell.rotors[axis].angle = 0
         
         axis, direct = self._rotate_direction
         for cell in self._cells_to_rotate:
             for g_cell in cell.g_cells:
-                rot = g_cell.rotors[axis]
-                rot.angle += self._graphical_rotate*direct*9
+                #g_cell.current_rotor.angle += g_cell.current_vector * self._graphical_rotate * direct * 9
+                g_cell.rotors[axis].angle += self._graphical_rotate * direct * 9
         self._ticks += 1
         if self._ticks == 10:
             Clock.unschedule(self._do_animation)
             self.is_animated = False
-            #_change_axis()
+            _update_cells()
 
 class LogicalCell(object):
     """ Logical representation of the cube cell """
@@ -486,7 +563,7 @@ class LogicalCube(object):
                 for y in xrange(self.cell_in_row):
                     surface.cells[x, y] = LogicalCell((x, y), surface.pos)
         
-    def __init__(self, cell_in_row=3):
+    def __init__(self, cell_in_row=4):
         if cell_in_row > 8:
             raise Exception('It doesn\'t support more than 8 cells in row')
         self.cell_in_row = cell_in_row
