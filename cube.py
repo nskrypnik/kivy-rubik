@@ -1,6 +1,7 @@
 
 import math
 import utils
+import random
 from kivy.graphics import *
 from renderer import Renderer
 from copy import copy
@@ -272,7 +273,8 @@ class GraphicalCube(Renderer):
         return vertices
     
     def draw(self):
-
+        self.rotx.angle = 45
+        self.roty.angle = 45
         for surface in self.surfaces.values():
             cell_vertices, cell_centers = self.get_cell_vertices(surface)
             back_cell_vertices = self.get_back_cell_vertices(cell_centers, surface)
@@ -322,8 +324,8 @@ class GraphicalCube(Renderer):
         cell = self.color_to_cell.get((r, g, b))
         if cell:
             print cell.orient, cell.cubelet.pos
-            print cell.g_cells[0].rotors['x'].angle, cell.g_cells[0].rotors['y'].angle, cell.g_cells[0].rotors['z'].angle
-            print cell.g_cells[0].rotor_vectors, cell.color
+            #print cell.g_cells[0].rotors['x'].angle, cell.g_cells[0].rotors['y'].angle, cell.g_cells[0].rotors['z'].angle
+            #print cell.g_cells[0].rotor_vectors, cell.color
             return cell
         else:
             return None
@@ -375,11 +377,8 @@ class GraphicalCube(Renderer):
                         y_index = i
                         break
                 z_index = 3 - y_index - x_index
-                try:
-                    z_value = cubelet.pos[z_index]
-                except IndexError:
-                    import ipdb; ipdb.set_trace()
-                print "turn_direct original", turn_direct
+                z_value = cubelet.pos[z_index]
+                #print "turn_direct original", turn_direct
                 self._rotate_direction = self.get_rotate_direction(cell.orient, z_index, turn_direct)
                 self.rotate_cubelets_surface((x_index, y_index, z_index), z_value)
                 self.start_animation()
@@ -398,16 +397,16 @@ class GraphicalCube(Renderer):
                 coord[z_index] = z_value
                 cubelet = self.cubelets[tuple(coord)]
                 cubelets_matrix[x].append(cubelet)
-        print "Turn matrix to %s" % turn_direct    
-        for i in cubelets_matrix:
-            print i
+        #print "Turn matrix to %s" % turn_direct    
+        #for i in cubelets_matrix:
+        #    print i
         
         self.rotate_cells(cubelets_matrix, x_index, y_index)
         cubelets_matrix = utils.turn_matrix(cubelets_matrix, self.cell_in_row, turn_direct)
         
-        print
-        for i in cubelets_matrix:
-            print i
+        #print
+        #for i in cubelets_matrix:
+        #    print i
         
         for x in xrange(self.cell_in_row):
             for y in xrange(self.cell_in_row):
@@ -422,10 +421,6 @@ class GraphicalCube(Renderer):
     def rotate_cells(self, cubelets_matrix, x_index, y_index):
         _axis = {'x': 1, 'y':-1, 'z': -1}
         self._cells_to_rotate = []
-        #z_index = 3 - x_index - y_index
-        #rot_axis = {0:'x', 1:'y', 2:'z'}[z_index]
-        #if rot_axis in ('x', 'z'):
-        #    turn_direct *= -1
         rot_axis, turn_direct = self._rotate_direction
         print self._rotate_direction 
         for row in cubelets_matrix:
@@ -449,7 +444,7 @@ class GraphicalCube(Renderer):
         self._slided_cubelets = []
         super(GraphicalCube, self).on_touch_down(touch)
         self.get_touched_cell(touch)
-    
+
     def on_touch_move(self, touch):
         if time() - self.touch_time < self.TOUCH_DELAY or \
                 len(self._touches) > 1 or self.move_delta>50 or self.is_animated:
@@ -460,21 +455,21 @@ class GraphicalCube(Renderer):
         else:
             # this is the mode of side rotation
             self.make_cube_turn(touch)
-    
+
     def on_touch_up(self, touch):
         if self.in_turn_process:
             self.is_animated = True
             self.in_turn_process = False
         self.move_delta = 0
         super(GraphicalCube, self).on_touch_up(touch)
-    
+
     # Animation functions here
     def start_animation(self):
         self._ticks = 0
         Clock.schedule_interval(self._do_animation, 1 / 20.)
-    
-    def _do_animation(self, dt):
-        
+
+    def _do_animation(self, dt, shaking=False):
+
         def _update_cells():
             
             axis, direct = self._rotate_direction
@@ -484,23 +479,87 @@ class GraphicalCube(Renderer):
                     g_cell.rotate_vertices(rotate_matrix)
                     g_cell.rotors[axis].angle = 0
         
-        axis, direct = self._rotate_direction
-        for cell in self._cells_to_rotate:
-            for g_cell in cell.g_cells:
-                #g_cell.current_rotor.angle += g_cell.current_vector * self._graphical_rotate * direct * 9
-                g_cell.rotors[axis].angle += self._graphical_rotate * direct * 9
-        self._ticks += 1
-        if self._ticks == 10:
+        if not shaking:
+            axis, direct = self._rotate_direction
+            for cell in self._cells_to_rotate:
+                for g_cell in cell.g_cells:
+                    #g_cell.current_rotor.angle += g_cell.current_vector * self._graphical_rotate * direct * 9
+                    g_cell.rotors[axis].angle += self._graphical_rotate * direct * 9
+            
+            self._ticks += 1
+        
+        if shaking or self._ticks == 10:
             Clock.unschedule(self._do_animation)
             self.is_animated = False
+            self.in_turn_process = False
+            self._slided_cubelets = []
             _update_cells()
+            
+            if not shaking and self.check_win_condition():
+                print "You win!"
+    
+    def check_win_condition(self):
+        for surface in self.surfaces.itervalues():
+            n = None
+            for cell in surface.cells.itervalues():
+                if not n:
+                    n = cell.orient
+                else:
+                    if n != cell.orient:
+                        return False
+        return True
+    
+    def shake(self):
+        for i in range(4*self.cell_in_row):
+            cubelet_pos = {'x': 0, 'y': 0, 'z': 0}
+            z_axis = random.choice(['x', 'y', 'z'])
+            v = ['x', 'y', 'z']
+            v.remove(z_axis)
+            x_axis, y_axis = v
+            for k in cubelet_pos:
+                if k != z_axis:
+                    cubelet_pos[k] = random.choice(range(self.cell_in_row))
+            cubelet0 = self.cubelets[tuple(cubelet_pos.values())]
+            turn_axis = random.choice([x_axis, y_axis])
+            if cubelet_pos[turn_axis] == 0:
+                cubelet_pos[turn_axis] = 1
+            elif cubelet_pos[turn_axis] == self.cell_in_row - 1:
+                cubelet_pos[turn_axis] = self.cell_in_row - 2
+            else:
+                cubelet_pos[turn_axis] += random.choice([-1, 1])
+            cubelet = self.cubelets[tuple(cubelet_pos.values())]
+            
+            def _find_cell():
+                for cell0 in cubelet0.cells:
+                    for cell in cubelet.cells:
+                        if cell0.orient == cell.orient:
+                            return cell
+            cell = _find_cell()
+            for i in xrange(3): # for 3 dimension :-)
+                turn_direct = cubelet0.pos[i] - cubelet.pos[i]
+                if turn_direct:
+                    x_index = i
+                    break
+                        
+            for i in xrange(3):
+                if cell.orient[i]:
+                    y_index = i
+                    break
+            print cubelet0.pos, cubelet.pos, turn_direct
+            z_index = 3 - y_index - x_index
+            z_value = cubelet.pos[z_index]
+             
+            self._rotate_direction = self.get_rotate_direction(cell.orient, z_index, turn_direct)
+            self.rotate_cubelets_surface((x_index, y_index, z_index), z_value)
+            self._do_animation(None, shaking=True)
+
 
 class LogicalCell(object):
     """ Logical representation of the cube cell """
-    def __init__(self, pos, orient):
+    def __init__(self, pos, orient, color):
         self.id = pos
         self.orient = list(orient)
-        self.color = () # color identifier
+        self.color = color # color identifier
         self.cubelet = None
         self.g_cells = []
 
@@ -561,7 +620,7 @@ class LogicalCube(object):
         for surface in self.surfaces.values():
             for x in xrange(self.cell_in_row):
                 for y in xrange(self.cell_in_row):
-                    surface.cells[x, y] = LogicalCell((x, y), surface.pos)
+                    surface.cells[x, y] = LogicalCell((x, y), surface.pos, surface.inner_color)
         
     def __init__(self, cell_in_row=4):
         if cell_in_row > 8:

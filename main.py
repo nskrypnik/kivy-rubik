@@ -24,7 +24,7 @@ class MainFrame(Widget):
         self.cube.widget.update_scene()
         button = Button(text="Shake", size_hint=(None, None),\
                         size=("150dp", "75dp"), pos=(0,0), font_size="40dp")
-        button.bind(on_release=lambda inst: ())
+        button.bind(on_release=lambda inst: self.cube.widget.shake())
         self.add_widget(button)
         
         
@@ -34,19 +34,18 @@ class MainFrame(Widget):
         label = Label(text="", font_size="20dp")
         layout.add_widget(label)
         
-        textinput = TextInput(multyline=False, font_size="30dp")
+        textinput = TextInput(multiline=False, font_size="30dp")
         layout.add_widget(textinput)
         button = Button(text="Begin!")
         
         def _create_cube(inst):
-            print textinput.text
             try:
                 cube_size = int(textinput.text)
             except:
                 label.text = "Error. Enter proper value."
                 return
-            if cube_size > 8 or cube_size < 2:
-                label.text = "Cube size should be between 2 and 8"
+            if cube_size > 6 or cube_size < 2:
+                label.text = "Cube size should be between 2 and 6"
                 return
             self.create_cube(cube_size)
             textinput.focus = False
