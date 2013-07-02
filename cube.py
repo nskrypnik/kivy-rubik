@@ -145,8 +145,8 @@ class GraphicalCube(Renderer):
     
     TOUCH_DELAY = 0.15
     ROTATE_SPEED = 0.125
-    MAX_SCALE = 1.3
-    MIN_SCALE = 0.3
+    MAX_SCALE = 1.5
+    MIN_SCALE = 0.4
      
     def __init__(self, *largs, **kw):
         kw['shader_file'] = 'shaders.glsl'
@@ -159,6 +159,7 @@ class GraphicalCube(Renderer):
         self.create_cubelets()
         self.is_animated = False # whetger the cube is in animation state
         self.in_turn_process = False
+        self.win_cb = kw.pop('win_cb', None)
         super(GraphicalCube, self).__init__(*largs, **kw)
         
     def create_cubelets(self):
@@ -496,7 +497,9 @@ class GraphicalCube(Renderer):
             _update_cells()
             
             if not shaking and self.check_win_condition():
-                print "You win!"
+                if self.win_cb:
+                    self.win_cb()
+
     
     def check_win_condition(self):
         for surface in self.surfaces.itervalues():
@@ -622,11 +625,11 @@ class LogicalCube(object):
                 for y in xrange(self.cell_in_row):
                     surface.cells[x, y] = LogicalCell((x, y), surface.pos, surface.inner_color)
         
-    def __init__(self, cell_in_row=4):
+    def __init__(self, cell_in_row=4, win_cb=None):
         if cell_in_row > 8:
             raise Exception('It doesn\'t support more than 8 cells in row')
         self.cell_in_row = cell_in_row
         self.create_surfaces()
         self.create_cells()
-        self.widget = GraphicalCube(cell_in_row=cell_in_row, surfaces=self.surfaces)
+        self.widget = GraphicalCube(cell_in_row=cell_in_row, surfaces=self.surfaces, win_cb=win_cb)
          

@@ -107,7 +107,8 @@ class Renderer(Widget):
     @ignore_undertouch
     def on_touch_up(self, touch):
         touch.ungrab(self)
-        self._touches.remove(touch)
+        if touch in self._touches: 
+            self._touches.remove(touch)
     
     @ignore_undertouch
     def on_touch_move(self, touch): 
